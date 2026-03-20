@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ZenBurst | AAA Destruction Simulator</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <div id="app">
+      <div id="canvas-container"></div>
+      <div class="overlay-fade" id="fade"></div>
+
+      <!-- Left Top Panel -->
+      <div class="ui-container">
+        <div class="title">ZenBurst</div>
+        <div class="subtitle">Ultimate Destruction Simulator</div>
+      </div>
+
+      <!-- Right Top Panel -->
+      <div class="status-bar">
+        <div class="status-box" id="fps">60 FPS</div>
+        <button id="toggle-sound" title="Toggle Sound">🔊</button>
+      </div>
+
+      <!-- Bottom HUD -->
+      <div class="hud-bottom">
+        <div class="mode-selector">
+          <button class="mode-btn active" data-mode="crystal">💎 Crystal</button>
+          <button class="mode-btn" data-mode="tech">⚙️ Tech</button>
+          <button class="mode-btn" data-mode="plasma">🔋 Plasma</button>
+        </div>
+        
+        <div id="power-container">
+          <div class="power-label">DESTRUCTION POWER</div>
+          <input type="range" id="power-slider" min="1" max="100" value="50">
+          <div class="status-box" id="power-value" style="width: 60px; text-align: center;">50</div>
+        </div>
+      </div>
+
+      <!-- Center Overlay -->
+      <div id="hint">
+        <h2>ZENBURST</h2>
+        <p style="letter-spacing: 5px; opacity: 0.7;">CLICK ANYWHERE TO START THE CHAOS</p>
+        <p style="font-size: 0.8em; margin-top: 2rem; opacity: 0.5;">[WASD] MOVE • [SPACE/Q/E] FLY • [DRAG] LOOK</p>
+      </div>
+    </div>
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>
