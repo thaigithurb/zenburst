@@ -495,7 +495,7 @@ class TechObject extends ZenObject {
         const glassGeo = new THREE.BoxGeometry(2.5, 2.5, 2.5)
         const glassMat = new THREE.MeshPhysicalMaterial({
             color: 0xffffff,
-            transmission: 0.4, // Lower for better visibility
+            transmission: 0.4, 
             thickness: 1.5,
             ior: 1.6,
             roughness: 0,
@@ -524,16 +524,33 @@ class TechObject extends ZenObject {
         const edges = new THREE.EdgesGeometry(glassGeo)
         const frames = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x00f2ff, transparent: true, opacity: 0.8 }))
         this.meshGroup.add(frames)
+        
+        // Dynamic Lighting
+        this.coreLight = new THREE.PointLight(0xff0066, 20.0, 30)
+        this.meshGroup.add(this.coreLight)
+
+        this.orbLight1 = new THREE.PointLight(0x00f2ff, 30.0, 15)
+        this.meshGroup.add(this.orbLight1)
+        
+        this.orbLight2 = new THREE.PointLight(0xffaa00, 30.0, 15)
+        this.meshGroup.add(this.orbLight2)
     }
     animate() {
         this.core.rotation.x += 0.04
         this.core.rotation.y += 0.02
         this.core.scale.setScalar(1 + Math.sin(Date.now()*0.01)*0.15)
+        
+        const time = Date.now()*0.003
+        this.orbLight1.position.set(Math.cos(time)*3.0, Math.sin(time*1.5)*2.0, Math.sin(time)*3.0)
+        this.orbLight2.position.set(Math.cos(time+Math.PI)*3.0, Math.sin(time*1.5+Math.PI)*2.0, Math.sin(time+Math.PI)*3.0)
+        
         if(Math.random() > 0.97) {
             this.world.chromaticAberrationEffect.offset.set(0.02*(Math.random()-0.5), 0)
-            this.core.material.emissiveIntensity = 20
+            this.core.material.emissiveIntensity = 40
+            this.coreLight.intensity = 80.0
         } else {
-            this.core.material.emissiveIntensity = 10
+            this.core.material.emissiveIntensity = 15
+            this.coreLight.intensity = 40.0
         }
     }
     getFragmentPalette() { return [0xffffff, 0xff0066, 0x00f2ff] } // Glass, Pink core, Neon frame
