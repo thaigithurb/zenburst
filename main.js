@@ -5,8 +5,11 @@ import {
     RenderPass, 
     EffectPass, 
     BloomEffect, 
-    ChromaticAberrationEffect
+    ChromaticAberrationEffect,
+    VignetteEffect,
+    NoiseEffect
 } from 'postprocessing'
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 
 // --- Utility: Sound Engine ---
 class SoundEngine {
@@ -23,34 +26,96 @@ class SoundEngine {
     this.init()
     if (this.ctx.state === 'suspended') this.ctx.resume()
   }
-  playShatter() {
+  playExplosion(power = 1.0, type = 'normal') {
     if (!this.enabled || !this.ctx) return
-    const bufferSize = this.ctx.sampleRate * 0.2
+    const t = this.ctx.currentTime
+
+    // 1. Hạt vỡ (Glass/Debris Noise Crack)
+    const bufferSize = this.ctx.sampleRate * 0.6
     const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate)
     const data = buffer.getChannelData(0)
-    for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1
+    for (let i = 0; i < bufferSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.15))
+    }
     const noise = this.ctx.createBufferSource()
     noise.buffer = buffer
-    const gain = this.ctx.createGain()
-    gain.gain.setValueAtTime(0.2, this.ctx.currentTime)
-    gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.2)
-    noise.connect(gain)
-    gain.connect(this.ctx.destination)
-    noise.start()
+
+    const filter = this.ctx.createBiquadFilter()
+    filter.type = type === 'flora' ? 'highpass' : 'bandpass'
+    filter.frequency.setValueAtTime(type === 'flora' ? 2000 : 4000, t)
+    if(type !== 'flora') filter.frequency.exponentialRampToValueAtTime(200, t + 0.4)
+
+    const noiseGain = this.ctx.createGain()
+    noiseGain.gain.setValueAtTime((type === 'flora' ? 0.3 : 0.8) * power, t)
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 0.5)
+
+    noise.connect(filter).connect(noiseGain).connect(this.ctx.destination)
+    noise.start(t)
+
+    // 2. Cinematic Sub-Bass Drop (The BOOM)
+    const osc = this.ctx.createOscillator()
+    osc.type = 'sine'
+    osc.frequency.setValueAtTime(type === 'tech' ? 150 : 100, t)
+    osc.frequency.exponentialRampToValueAtTime(20, t + (type === 'flora' ? 0.4 : 0.8))
+
+    const subGain = this.ctx.createGain()
+    subGain.gain.setValueAtTime(1.5 * power, t)
+    subGain.gain.exponentialRampToValueAtTime(0.001, t + (type === 'flora' ? 0.4 : 0.8))
+
+    osc.connect(subGain).connect(this.ctx.destination)
+    osc.start(t)
+    osc.stop(t + 0.9)
+
+    // 3. Mid-range Crunch & Rumble
+    if (type !== 'flora') {
+        const saw = this.ctx.createOscillator()
+        saw.type = type === 'tech' ? 'square' : 'sawtooth'
+        saw.frequency.setValueAtTime(80, t)
+        saw.frequency.exponentialRampToValueAtTime(10, t + 0.6)
+
+        const sawFilter = this.ctx.createBiquadFilter()
+        sawFilter.type = 'lowpass'
+        sawFilter.frequency.setValueAtTime(2000, t)
+        sawFilter.frequency.exponentialRampToValueAtTime(100, t + 0.5)
+
+        const sawGain = this.ctx.createGain()
+        sawGain.gain.setValueAtTime(0.5 * power, t)
+        sawGain.gain.exponentialRampToValueAtTime(0.001, t + 0.6)
+
+        saw.connect(sawFilter).connect(sawGain).connect(this.ctx.destination)
+        saw.start(t)
+        saw.stop(t + 0.6)
+    }
   }
-  playRumble() {
+
+  playImplosion() {
+    if (!this.enabled || !this.ctx) return
+    const t = this.ctx.currentTime
+    const osc = this.ctx.createOscillator()
+    osc.type = 'sine'
+    osc.frequency.setValueAtTime(20, t)
+    osc.frequency.exponentialRampToValueAtTime(300, t + 1.2) // Hút âm bổng lên
+    
+    const gain = this.ctx.createGain()
+    gain.gain.setValueAtTime(0.001, t)
+    gain.gain.exponentialRampToValueAtTime(1.2, t + 1.2) 
+    
+    osc.connect(gain).connect(this.ctx.destination)
+    osc.start(t)
+    osc.stop(t + 1.3)
+  }
+  playHover() {
     if (!this.enabled || !this.ctx) return
     const osc = this.ctx.createOscillator()
     const gain = this.ctx.createGain()
-    osc.type = 'sawtooth'
-    osc.frequency.setValueAtTime(60, this.ctx.currentTime)
-    osc.frequency.exponentialRampToValueAtTime(20, this.ctx.currentTime + 0.5)
-    gain.gain.setValueAtTime(0.5, this.ctx.currentTime)
-    gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.5)
+    osc.frequency.setValueAtTime(800, this.ctx.currentTime)
+    osc.frequency.exponentialRampToValueAtTime(1400, this.ctx.currentTime + 0.05)
+    gain.gain.setValueAtTime(0.02, this.ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.05)
     osc.connect(gain)
     gain.connect(this.ctx.destination)
     osc.start()
-    osc.stop(this.ctx.currentTime + 0.5)
+    osc.stop(this.ctx.currentTime + 0.05)
   }
 }
 const sounds = new SoundEngine()
@@ -60,7 +125,9 @@ class World {
     constructor(container) {
         this.container = container
         this.scene = new THREE.Scene()
-        this.scene.background = new THREE.Color(0x010205)
+        this.currentBg = new THREE.Color(0x010205)
+        this.targetBg = new THREE.Color(0x010205)
+        this.scene.background = this.currentBg.clone()
         this.scene.fog = new THREE.FogExp2(0x010205, 0.04)
         
         this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000)
@@ -79,7 +146,11 @@ class World {
         
         this.bloomEffect = new BloomEffect({ intensity: 2.5, luminanceThreshold: 0.1, luminanceSmoothing: 0.9 })
         this.chromaticAberrationEffect = new ChromaticAberrationEffect({ offset: new THREE.Vector2(0, 0) })
-        this.composer.addPass(new EffectPass(this.camera, this.bloomEffect, this.chromaticAberrationEffect))
+        this.vignetteEffect = new VignetteEffect({ darkness: 0.5, offset: 0.3 })
+        this.noiseEffect = new NoiseEffect({ premultiply: true })
+        this.noiseEffect.blendMode.opacity.value = 0.4
+        
+        this.composer.addPass(new EffectPass(this.camera, this.bloomEffect, this.chromaticAberrationEffect, this.vignetteEffect, this.noiseEffect))
 
         // Lights
         this.sparkleLights = []
@@ -100,7 +171,10 @@ class World {
     }
 
     setupControls() {
-        // Camera movement disabled as per user request
+        this.controls = new OrbitControls(this.camera, this.renderer.domElement)
+        this.controls.enabled = false
+        this.controls.enableDamping = true
+        this.controls.dampingFactor = 0.05
     }
 
     setupEnvironment() {
@@ -117,6 +191,34 @@ class World {
         grid.material.transparent = true
         grid.material.opacity = 0.4
         this.scene.add(grid)
+
+        // 1. Shockwave Effect (Refracting Sphere)
+        const shockGeo = new THREE.SphereGeometry(1, 32, 32)
+        const shockMat = new THREE.MeshPhysicalMaterial({
+            color: 0xffffff, transmission: 1.0, ior: 1.2, thickness: 0.1, roughness: 0,
+            transparent: true, opacity: 1.0, side: THREE.BackSide
+        })
+        this.shockMesh = new THREE.Mesh(shockGeo, shockMat)
+        this.shockMesh.visible = false
+        this.scene.add(this.shockMesh)
+
+        // 2. Micro-Dust System (InstancedMesh)
+        const dustCount = 2000
+        const dustGeo = new THREE.TetrahedronGeometry(0.02)
+        const dustMat = new THREE.MeshStandardMaterial({
+            color: 0xffffff, emissive: 0x222222, emissiveIntensity: 1, transparent: true, opacity: 0.5
+        })
+        this.dustMesh = new THREE.InstancedMesh(dustGeo, dustMat, dustCount)
+        this.dustData = []
+        this.dustDummy = new THREE.Object3D()
+        for(let i=0; i<dustCount; i++) {
+            this.dustData.push({
+                p: new THREE.Vector3((Math.random()-0.5)*40, (Math.random()-0.2)*30, (Math.random()-0.5)*40),
+                v: new THREE.Vector3((Math.random()-0.5)*0.015, (Math.random()-0.5)*0.015, (Math.random()-0.5)*0.015),
+                r: new THREE.Vector3(Math.random(), Math.random(), Math.random())
+            })
+        }
+        this.scene.add(this.dustMesh)
     }
 
     shake(intensity = 0.5) { 
@@ -132,14 +234,47 @@ class World {
     }
 
     render() {
-        // Essential: Lock camera to fixed position every frame, then add shake
-        this.camera.position.set(0, 2.0, 12)
-        this.camera.quaternion.setFromEuler(this.rotation)
+        if (!window.app?.isFreeCam) {
+            this.camera.position.set(0, 2.0, 12)
+            this.camera.quaternion.setFromEuler(this.rotation)
+        } else {
+            this.controls.update()
+        }
 
         if (this.shakeTime > 0) {
             this.shakeTime -= 0.016
             this.camera.position.x += (Math.random()-0.5) * this.shakeIntensity
             this.camera.position.y += (Math.random()-0.5) * this.shakeIntensity
+        }
+
+        // Dynamic Background Transition
+        this.currentBg.lerp(this.targetBg, 0.02)
+        this.scene.background.copy(this.currentBg)
+        this.scene.fog.color.copy(this.currentBg)
+
+        // Update Shockwave
+        if(this.shockMesh && this.shockMesh.visible) {
+            this.shockTime += 0.016
+            const s = 0.1 + this.shockTime * 60.0
+            this.shockMesh.scale.set(s,s,s)
+            this.shockMesh.material.opacity = Math.max(0, 1.0 - this.shockTime * 2.0)
+            if(this.shockMesh.material.opacity <= 0) this.shockMesh.visible = false
+        }
+
+        // Update Micro-Dust
+        if (this.dustMesh) {
+            for(let i=0; i<2000; i++) {
+                const d = this.dustData[i]
+                d.p.add(d.v)
+                if(d.p.y < -10) d.p.y = 20
+                if(d.p.y > 20) d.p.y = -10
+                this.dustDummy.position.copy(d.p)
+                this.dustDummy.rotation.x += d.r.x * 0.05
+                this.dustDummy.rotation.y += d.r.y * 0.05
+                this.dustDummy.updateMatrix()
+                this.dustMesh.setMatrixAt(i, this.dustDummy.matrix)
+            }
+            this.dustMesh.instanceMatrix.needsUpdate = true
         }
 
         // Fade
@@ -177,6 +312,19 @@ class ZenObject {
         this.particles = []
         this.isShattered = false
         this.baseY = 2.0
+        
+        // 3. Fake Contact Shadows setup
+        const canvas = document.createElement('canvas')
+        canvas.width = 64; canvas.height = 64;
+        const ctx = canvas.getContext('2d')
+        const grad = ctx.createRadialGradient(32,32,0, 32,32,32)
+        grad.addColorStop(0, 'rgba(0,0,0,0.8)')
+        grad.addColorStop(1, 'rgba(0,0,0,0)')
+        ctx.fillStyle = grad; ctx.fillRect(0,0,64,64)
+        this.shadowTex = new THREE.CanvasTexture(canvas)
+        this.shadowMat = new THREE.MeshBasicMaterial({ map: this.shadowTex, transparent: true, depthWrite: false })
+        this.shadowGeo = new THREE.PlaneGeometry(1.2, 1.2)
+        
         this.init()
     }
     init() {
@@ -197,12 +345,22 @@ class ZenObject {
         const hit = raycaster.intersectObjects(this.meshGroup.children, true)
         if (hit.length > 0) this.shatter(hit[0].point)
     }
-    shatter(pos) {
+    shatter(pos, type = 'normal') {
         this.isShattered = true
         this.meshGroup.visible = false
-        sounds.playShatter()
-        sounds.playRumble()
-        this.world.shake(0.7)
+        const powerVal = parseInt(document.getElementById('power-slider').value) / 50.0
+        sounds.playExplosion(powerVal, type)
+        
+        this.world.shake(0.7 * powerVal)
+        
+        // Trigger Shockwave
+        if(this.world.shockMesh) {
+            this.world.shockMesh.position.copy(pos)
+            this.world.shockMesh.scale.setScalar(0.1)
+            this.world.shockMesh.visible = true
+            this.world.shockTime = 0
+            this.world.shockMesh.material.opacity = 1.0
+        }
         
         this.world.bloomEffect.intensity = 25
         this.world.chromaticAberrationEffect.offset.set(0.06, 0)
@@ -232,15 +390,23 @@ class ZenObject {
             const p = new THREE.Mesh(this.getFragmentGeo(size), fragMat)
             p.position.copy(pos).add(new THREE.Vector3((Math.random()-0.5)*1.2, (Math.random()-0.5)*1.2, (Math.random()-0.5)*1.2))
             
-            // Randomized explosive velocity
-            const vel = p.position.clone().sub(pos).normalize().multiplyScalar(0.4 + Math.random()*0.7)
-            vel.y += 0.4 // Pop up
+            // Vận tốc (luôn có một lực nảy tối thiểu dù power = 1)
+            const speed = 0.2 + (0.3 + Math.random()*0.5) * powerVal
+            const vel = p.position.clone().sub(pos).normalize().multiplyScalar(speed)
+            vel.y += 0.15 + 0.25 * powerVal // Pop up tối thiểu cho các khối có trọng lực
+            
+            // Shadow plane
+            const shadow = new THREE.Mesh(this.shadowGeo, this.shadowMat.clone())
+            shadow.rotation.x = -Math.PI / 2
+            shadow.visible = false
+            this.world.scene.add(shadow)
             
             p.userData = { 
                 vel: vel, 
                 rot: new THREE.Vector3(Math.random()*0.2, Math.random()*0.2, Math.random()*0.2),
                 life: 1.0,
-                stayHome: 2.5 // Longer stay
+                stayHome: 2.5,
+                shadow: shadow
             }
             this.group.add(p)
             this.particles.push(p)
@@ -271,10 +437,26 @@ class ZenObject {
             p.rotation.x += ud.rot.x
             p.rotation.y += ud.rot.y
             
-            ud.vel.y -= 0.018 // Gravity
+            ud.vel.y -= window.app?.isZeroG ? 0 : 0.018 // Gravity (or not)
+            if (window.app?.isZeroG) ud.vel.multiplyScalar(0.98) // Float friction
             
+            // Contact Shadow Update
+            if (!window.app?.isZeroG && ud.shadow && ud.shadow.material) {
+                const yDist = p.position.y - (-5.8)
+                if (yDist < 2.5 && ud.life > 0) {
+                    ud.shadow.visible = true
+                    ud.shadow.position.set(p.position.x, -5.79, p.position.z)
+                    ud.shadow.scale.setScalar(Math.max(0.01, 1.0 - (yDist / 2.5)))
+                    ud.shadow.material.opacity = Math.max(0, 1.0 - (yDist / 2.5)) * ud.life
+                } else {
+                    ud.shadow.visible = false
+                }
+            } else if (ud.shadow) {
+                ud.shadow.visible = false
+            }
+
             // Collision with Ground (y = -5.8)
-            if (p.position.y < -5.8) {
+            if (!window.app?.isZeroG && p.position.y < -5.8) {
                 p.position.y = -5.8
                 ud.vel.y *= -0.25 // Bounce
                 ud.vel.x *= 0.82 // Friction
@@ -292,6 +474,10 @@ class ZenObject {
                     this.group.remove(p)
                     p.geometry.dispose()
                     p.material.dispose()
+                    if (ud.shadow) {
+                        this.world.scene.remove(ud.shadow)
+                        if (ud.shadow.material) ud.shadow.material.dispose()
+                    }
                     this.particles.splice(i,1)
                 }
             }
@@ -466,11 +652,18 @@ class PlasmaObject extends ZenObject {
             })
             const p = new THREE.Mesh(new THREE.SphereGeometry(size, 8, 8), fragMat)
             p.position.copy(dp)
+            
+            const shadow = new THREE.Mesh(this.shadowGeo, this.shadowMat.clone())
+            shadow.rotation.x = -Math.PI / 2
+            shadow.visible = false
+            this.world.scene.add(shadow)
+            
             p.userData = { 
                 vel: dp.clone().sub(pos).normalize().multiplyScalar(0.6 + Math.random()*0.5),
                 rot: new THREE.Vector3(Math.random()*0.2, Math.random()*0.2, Math.random()*0.2),
                 life: 1.0,
-                stayHome: 2.5 
+                stayHome: 2.5,
+                shadow: shadow
             }
             this.group.add(p)
             this.particles.push(p)
@@ -489,9 +682,199 @@ class PlasmaObject extends ZenObject {
     getFragmentGeo(s) { return new THREE.SphereGeometry(s, 8, 8) }
 }
 
+// 🌑 Black Hole (Singularity)
+class SingularityObject extends ZenObject {
+    build() {
+        this.meshGroup.scale.setScalar(1.2)
+        const coreGeo = new THREE.SphereGeometry(1.5, 64, 64)
+        const coreMat = new THREE.MeshBasicMaterial({ color: 0x000000 })
+        this.core = new THREE.Mesh(coreGeo, coreMat)
+        this.meshGroup.add(this.core)
+        
+        // Event Horizon Glow
+        const glowGeo = new THREE.SphereGeometry(1.6, 32, 32)
+        const glowMat = new THREE.MeshBasicMaterial({ 
+            color: 0x8800ff, transparent: true, opacity: 0.4, 
+            blending: THREE.AdditiveBlending, depthWrite: false 
+        })
+        this.glow = new THREE.Mesh(glowGeo, glowMat)
+        this.meshGroup.add(this.glow)
+        
+        // Accretion disk (Cyan/Purple gradient)
+        const diskGeo = new THREE.RingGeometry(1.5, 4.0, 64)
+        const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 256;
+        const ctx = canvas.getContext('2d');
+        const g = ctx.createRadialGradient(128,128,60, 128,128,128)
+        g.addColorStop(0, 'rgba(255,255,255,1)')
+        g.addColorStop(0.3, 'rgba(0, 200, 255, 0.9)')
+        g.addColorStop(0.6, 'rgba(128, 0, 255, 0.6)')
+        g.addColorStop(1, 'rgba(0,0,0,0)')
+        ctx.fillStyle = g; ctx.fillRect(0,0,256,256)
+        
+        const diskMat = new THREE.MeshBasicMaterial({ 
+            color: 0xffffff, side: THREE.DoubleSide, transparent: true, opacity: 0.9,
+            map: new THREE.CanvasTexture(canvas), depthWrite: false, blending: THREE.AdditiveBlending
+        })
+        this.disk = new THREE.Mesh(diskGeo, diskMat)
+        this.disk.rotation.x = Math.PI/2 - 0.2
+        this.meshGroup.add(this.disk)
+
+        // Secondary Disk (Gyroscope Effect)
+        this.disk2 = new THREE.Mesh(diskGeo, diskMat.clone())
+        this.disk2.material.opacity = 0.6
+        this.disk2.scale.setScalar(0.75)
+        this.disk2.rotation.x = Math.PI/2 - 0.2
+        this.disk2.rotation.y = Math.PI/3
+        this.meshGroup.add(this.disk2)
+    }
+    shatter(pos) {
+        if (this.isShattered) return
+        this.isShattered = true
+        const powerVal = parseInt(document.getElementById('power-slider').value) / 50.0
+        sounds.playImplosion()
+        let s = 1.2;
+        const shrinkSpeed = 0.12 * Math.max(0.5, powerVal)
+        const shrink = setInterval(() => {
+            s -= shrinkSpeed // Thu vào
+            if(s <= 0.1) {
+                clearInterval(shrink)
+                super.shatter(pos, 'singularity') 
+                
+                // Thêm các hạt trắng nổ vũ trụ
+                const count = Math.floor(300 * Math.max(0.2, powerVal))
+                for(let i=0; i<count; i++) {
+                    const size = 0.05 + Math.random()*0.1
+                    const p = new THREE.Mesh(new THREE.SphereGeometry(size, 8, 8), new THREE.MeshStandardMaterial({
+                        color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 10, transparent: true, opacity: 1.0
+                    }))
+                    p.position.copy(pos).add(new THREE.Vector3((Math.random()-0.5)*1.5, (Math.random()-0.5)*1.5, (Math.random()-0.5)*1.5))
+                    
+                    const shadow = new THREE.Object3D() // Dummy shadow
+                    shadow.visible = false
+                    
+                    const speed = 0.5 + (0.5 + Math.random() * 2.0) * powerVal
+                    const vel = p.position.clone().sub(pos).normalize().multiplyScalar(speed)
+                    vel.y += 0.15 + 0.25 * powerVal
+                    
+                    p.userData = { 
+                        vel: vel,
+                        rot: new THREE.Vector3(Math.random()*0.1, Math.random()*0.1, Math.random()*0.1),
+                        life: 1.0, stayHome: Math.random() * 1.5, shadow: shadow
+                    }
+                    this.group.add(p)
+                    this.particles.push(p)
+                }
+
+                this.world.shake(2.0 * powerVal)
+                this.world.bloomEffect.intensity = 55 * Math.max(0.5, powerVal)
+                for(let i=0; i<2000; i++) {
+                    const d = this.world.dustData[i]
+                    d.v.copy(d.p).normalize().multiplyScalar((0.3 + Math.random()*0.5) * powerVal)
+                }
+            } else {
+                this.meshGroup.scale.setScalar(s)
+                for(let i=0; i<2000; i++) {
+                    const d = this.world.dustData[i]
+                    const pullSpeed = 0.2 * Math.max(0.5, powerVal)
+                    d.v.copy(this.meshGroup.position).sub(d.p).normalize().multiplyScalar(pullSpeed)
+                }
+            }
+        }, 16)
+    }
+    animate() {
+        this.disk.rotation.z -= 0.03
+        this.disk2.rotation.z += 0.04
+        this.disk2.rotation.x = (Math.PI/2 - 0.2) + Math.sin(Date.now()*0.002)*0.2
+        this.core.scale.setScalar(1 + Math.sin(Date.now()*0.01)*0.01)
+        this.glow.scale.setScalar(1 + Math.sin(Date.now()*0.02)*0.03)
+        this.glow.material.opacity = 0.4 + Math.sin(Date.now()*0.015)*0.2
+    }
+    getFragmentPalette() { return [0x000000, 0x00c8ff, 0x8000ff, 0xffffff] } 
+    getFragmentGeo(s) { return new THREE.BoxGeometry(s,s,s) }
+}
+
+// 🪷 Bioluminescent Flora
+class FloraObject extends ZenObject {
+    build() {
+        this.meshGroup.scale.setScalar(1.0)
+        this.petals = []
+        for(let i=0; i<12; i++) {
+            const geo = new THREE.SphereGeometry(1.2, 32, 16)
+            geo.scale(0.3, 1.5, 0.8) 
+            const mat = new THREE.MeshPhysicalMaterial({
+                color: 0x00ff88, emissive: 0x00ff88, emissiveIntensity: 2, 
+                transparent: true, opacity: 0.7, transmission: 0.9, roughness: 0.2
+            })
+            const mesh = new THREE.Mesh(geo, mat)
+            mesh.position.y = 1.0
+            
+            const pivot = new THREE.Group()
+            pivot.rotation.y = (i / 12) * Math.PI * 2
+            pivot.rotation.z = Math.PI / 4 + Math.random()*0.2
+            pivot.add(mesh)
+            
+            this.meshGroup.add(pivot)
+            this.petals.push(pivot)
+        }
+    }
+    shatter(pos) {
+        this.isShattered = true
+        this.meshGroup.visible = false
+        const powerVal = parseInt(document.getElementById('power-slider').value) / 50.0
+        sounds.playExplosion(powerVal, 'flora')
+        
+        this.world.shake(1.0 * powerVal) // Flora vỡ cũng cần rung mạnh mẽ
+        
+        if(this.world.shockMesh) {
+            this.world.shockMesh.position.copy(pos)
+            this.world.shockMesh.scale.setScalar(0.1)
+            this.world.shockMesh.visible = true
+            this.world.shockTime = 0
+            this.world.shockMesh.material.opacity = 0.5
+        }
+
+        this.world.bloomEffect.intensity = 15
+        this.world.chromaticAberrationEffect.offset.set(0.04, 0)
+        setTimeout(() => this.world.bloomEffect.intensity = 2.5, 250)
+
+        const count = 300
+        for(let i=0; i<count; i++) {
+            const size = 0.05 + Math.random()*0.05
+            const p = new THREE.Mesh(new THREE.SphereGeometry(size, 8, 8), new THREE.MeshStandardMaterial({
+                color: 0x00ff88, emissive: 0x00ff88, emissiveIntensity: 5, transparent: true, opacity: 1.0
+            }))
+            p.position.copy(pos).add(new THREE.Vector3((Math.random()-0.5)*2, (Math.random()-0.5)*2, (Math.random()-0.5)*2))
+            
+            const shadow = new THREE.Object3D() // Dummy
+            shadow.visible = false
+            
+            const speed = 0.15 + (0.2 + Math.random() * 0.6) * powerVal
+            const vel = p.position.clone().sub(pos).normalize().multiplyScalar(speed)
+            vel.y += 0.15 + 0.25 * powerVal
+            
+            p.userData = { 
+                vel: vel,
+                rot: new THREE.Vector3(Math.random()*0.1, Math.random()*0.1, Math.random()*0.1),
+                life: 1.0, stayHome: Math.random() * 2.0, shadow: shadow
+            }
+            this.group.add(p)
+            this.particles.push(p)
+        }
+        setTimeout(() => this.reset(), 800)
+    }
+    animate() {
+        const time = Date.now() * 0.001
+        this.petals.forEach((p, i) => {
+            p.rotation.z = Math.PI/4 + Math.sin(time + i)*0.15
+        })
+        this.meshGroup.position.y = this.baseY + Math.sin(time)*0.3
+    }
+}
+
 // --- App Control ---
 class App {
     constructor() {
+        window.app = this
         this.world = new World(document.getElementById('canvas-container'))
         this.world.setupEnvironment()
         this.world.setupControls()
@@ -499,10 +882,14 @@ class App {
         this.objects = {
             crystal: new CrystalObject(this.world),
             tech: new TechObject(this.world),
-            plasma: new PlasmaObject(this.world)
+            plasma: new PlasmaObject(this.world),
+            singularity: new SingularityObject(this.world),
+            flora: new FloraObject(this.world)
         }
         
         this.currentMode = 'crystal'
+        this.isZeroG = false
+        this.isFreeCam = false
         this.setupUI()
         this.setMode('crystal')
         this.loop()
@@ -513,14 +900,53 @@ class App {
         this.objects[mode].group.visible = true
         this.objects[mode].reset()
         
+        let targetBgColor = 0x010205
+        if(mode === 'crystal') targetBgColor = 0x2a044a 
+        else if(mode === 'tech') targetBgColor = 0x041b36 
+        else if(mode === 'plasma') targetBgColor = 0x0a2f1d
+        else if(mode === 'singularity') targetBgColor = 0x000000 
+        else if(mode === 'flora') targetBgColor = 0x02170b 
+        this.world.targetBg.setHex(targetBgColor)
+        
         document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'))
         const activeBtn = document.querySelector(`[data-mode="${mode}"]`)
         if(activeBtn) activeBtn.classList.add('active')
+        
+        // Reset camera if not in free cam
+        if(!this.isFreeCam && this.world.controls) {
+            this.world.camera.position.set(0, 2.0, 12)
+            this.world.camera.lookAt(0,0,0)
+            this.world.controls.target.set(0,0,0)
+        }
     }
     setupUI() {
+        const slider = document.getElementById('power-slider')
+        const valBox = document.getElementById('power-value')
+        slider.addEventListener('input', (e) => valBox.textContent = e.target.value)
+
+        document.querySelectorAll('.mode-btn, .icon-btn, input[type="range"]').forEach(btn => {
+            btn.addEventListener('mouseenter', () => { sounds.resume(); sounds.playHover() })
+        })
+        
         document.querySelectorAll('.mode-btn').forEach(btn => {
             btn.addEventListener('click', () => this.setMode(btn.dataset.mode))
         })
+        
+        document.getElementById('toggle-zerog').addEventListener('click', (e) => {
+            e.target.classList.toggle('active')
+            this.isZeroG = e.target.classList.contains('active')
+        })
+        
+        document.getElementById('toggle-camera').addEventListener('click', (e) => {
+            e.target.classList.toggle('active')
+            this.isFreeCam = e.target.classList.contains('active')
+            this.world.controls.enabled = this.isFreeCam
+            if(!this.isFreeCam) {
+                this.world.camera.position.set(0, 2.0, 12)
+                this.world.camera.lookAt(0,0,0)
+            }
+        })
+        
         window.addEventListener('mousedown', (e) => {
             if (e.target.closest('.hud-bottom') || e.target.closest('.status-bar') || e.target.closest('.ui-container')) return
             sounds.resume()
