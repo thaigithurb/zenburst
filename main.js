@@ -945,25 +945,6 @@ class App {
         }
     }
     setupUI() {
-        const warning = document.getElementById('hw-warning')
-        // Kiểm tra Mobile/Tablet kỹ hơn: UserAgent, Touch Points, hoặc màn hình nhỏ
-        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
-                         (navigator.maxTouchPoints > 0) || 
-                         window.innerWidth <= 1024;
-        
-        if (isMobile) {
-            warning.style.display = 'flex'
-        }
-
-        // Warning Popup
-        document.getElementById('btn-enter').addEventListener('click', () => {
-            warning.style.opacity = '0';
-            setTimeout(() => {
-                warning.style.display = 'none';
-                sounds.resume(); 
-            }, 500);
-        });
-        
         const slider = document.getElementById('power-slider')
         const valBox = document.getElementById('power-value')
         slider.addEventListener('input', (e) => valBox.textContent = e.target.value)
@@ -1022,5 +1003,34 @@ class App {
 }
 
 window.addEventListener('DOMContentLoaded', () => { 
-    try { new App(); console.log("ZenBurst EXTREME Initialized"); } catch (e) { console.error(e); }
+    const warning = document.getElementById('hw-warning');
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+                     (navigator.maxTouchPoints > 0) || 
+                     window.innerWidth <= 1024;
+
+    const startApp = () => {
+        try { 
+            window.app = new App(); 
+            console.log("ZenBurst EXTREME Initialized"); 
+        } catch (e) { 
+            console.error(e); 
+        }
+    };
+
+    if (isMobile) {
+        // Hiện cảnh bảo trước, chưa load 3D gì hết
+        warning.style.display = 'flex';
+        document.getElementById('btn-enter').addEventListener('click', () => {
+            warning.style.opacity = '0';
+            setTimeout(() => {
+                warning.style.display = 'none';
+                startApp();
+                // Vì trình duyệt chặn audio tự động, resume sau khi user click
+                if (window.sounds) window.sounds.resume();
+            }, 500);
+        });
+    } else {
+        // PC thì vào thẳng luôn cho sướng
+        startApp();
+    }
 })
