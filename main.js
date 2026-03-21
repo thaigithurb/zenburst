@@ -231,11 +231,18 @@ class World {
         this.camera.updateProjectionMatrix()
         this.renderer.setSize(window.innerWidth, window.innerHeight)
         this.composer.setSize(window.innerWidth, window.innerHeight)
+        
+        // Responsive 3D khối (đẩy camera lùi ra xa nếu màn hình nhỏ)
+        this.baseZ = window.innerWidth < 800 ? 20 : 12;
+        if (!window.app?.isFreeCam) {
+            this.camera.position.z = this.baseZ
+        }
     }
 
     render() {
         if (!window.app?.isFreeCam) {
-            this.camera.position.set(0, 2.0, 12)
+            this.baseZ = window.innerWidth < 800 ? 20 : 12;
+            this.camera.position.set(0, 2.0, this.baseZ)
             this.camera.quaternion.setFromEuler(this.rotation)
         } else {
             this.controls.update()
@@ -931,12 +938,29 @@ class App {
         
         // Reset camera if not in free cam
         if(!this.isFreeCam && this.world.controls) {
-            this.world.camera.position.set(0, 2.0, 12)
+            this.baseZ = window.innerWidth < 800 ? 20 : 12;
+            this.world.camera.position.set(0, 2.0, this.baseZ)
             this.world.camera.lookAt(0,0,0)
             this.world.controls.target.set(0,0,0)
         }
     }
     setupUI() {
+        const warning = document.getElementById('hw-warning')
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 800;
+        
+        if (isMobile) {
+            warning.style.display = 'flex'
+        }
+
+        // Warning Popup
+        document.getElementById('btn-enter').addEventListener('click', () => {
+            warning.style.opacity = '0';
+            setTimeout(() => {
+                warning.style.display = 'none';
+                sounds.resume(); 
+            }, 500);
+        });
+        
         const slider = document.getElementById('power-slider')
         const valBox = document.getElementById('power-value')
         slider.addEventListener('input', (e) => valBox.textContent = e.target.value)
@@ -954,23 +978,38 @@ class App {
             this.isZeroG = e.target.classList.contains('active')
         })
         
+        // Reset góc nhìn cho freecam
         document.getElementById('toggle-camera').addEventListener('click', (e) => {
             e.target.classList.toggle('active')
             this.isFreeCam = e.target.classList.contains('active')
             this.world.controls.enabled = this.isFreeCam
             if(!this.isFreeCam) {
-                this.world.camera.position.set(0, 2.0, 12)
+                const baseZ = window.innerWidth < 800 ? 20 : 12;
+                this.world.camera.position.set(0, 2.0, baseZ)
                 this.world.camera.lookAt(0,0,0)
             }
         })
         
-        window.addEventListener('mousedown', (e) => {
+        const handleInteract = (e) => {
             if (e.target.closest('.hud-bottom') || e.target.closest('.status-bar') || e.target.closest('.ui-container')) return
             sounds.resume()
-            this.objects[this.currentMode].onClick(e.clientX, e.clientY)
+            
+            let clientX, clientY
+            if (e.touches && e.touches.length > 0) {
+                clientX = e.touches[0].clientX
+                clientY = e.touches[0].clientY
+            } else {
+                clientX = e.clientX
+                clientY = e.clientY
+            }
+            
+            this.objects[this.currentMode].onClick(clientX, clientY)
             const hint = document.getElementById('hint')
             if(hint) hint.style.display = 'none'
-        })
+        }
+        
+        window.addEventListener('mousedown', handleInteract)
+        window.addEventListener('touchstart', handleInteract, { passive: false })
     }
     loop() {
         requestAnimationFrame(() => this.loop())

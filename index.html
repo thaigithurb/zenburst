@@ -3,12 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>ZenBurst | AAA Destruction Simulator</title>
     <link rel="stylesheet" href="style.css">
   </head>
   <body>
     <div id="app">
+      <!-- Hardware Warning Overlay -->
+      <div id="hw-warning" class="warning-overlay" style="display: none;">
+        <div class="warning-box">
+          <h2>⚠️ CẢNH BÁO NHẸ</h2>
+          <p>Web này sử dụng vật lý và đồ họa 3D siêu hao GPU đấy.</p>
+          <p><strong>Khuyến cáo sử dụng PC hoặc Điện thoại cấu hình mạnh.</strong></p>
+          <p>Bao rớt FPS, bạn chắc chắn muốn trải nghiệm chứ?</p>
+          <button id="btn-enter" class="enter-btn">TÔI CHẮC CHẮN</button>
+        </div>
+      </div>
+
       <div id="canvas-container"></div>
       <div class="overlay-fade" id="fade"></div>
 
