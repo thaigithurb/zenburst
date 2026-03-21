@@ -755,7 +755,7 @@ class SingularityObject extends ZenObject {
         if (this.isShattered) return
         this.isShattered = true
         const powerVal = parseInt(document.getElementById('power-slider').value) / 50.0
-        sounds.playImplosion()
+        // sounds.playImplosion() // Bỏ tiếng hút theo yêu cầu người dùng
         let s = 1.2;
         const shrinkSpeed = 0.12 * Math.max(0.5, powerVal)
         const shrink = setInterval(() => {
@@ -946,7 +946,10 @@ class App {
     }
     setupUI() {
         const warning = document.getElementById('hw-warning')
-        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 800;
+        // Kiểm tra Mobile/Tablet kỹ hơn: UserAgent, Touch Points, hoặc màn hình nhỏ
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+                         (navigator.maxTouchPoints > 0) || 
+                         window.innerWidth <= 1024;
         
         if (isMobile) {
             warning.style.display = 'flex'
